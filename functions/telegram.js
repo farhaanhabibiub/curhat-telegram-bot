@@ -170,16 +170,9 @@ async function callGemini(env, userText) {
 
   if (!geminiResp.ok) {
     const errText = await geminiResp.text();
-    console.log("Gemini error body:", errText);
 
-    // Beberapa error umum biar jelas ke user
-    if (geminiResp.status === 401 || geminiResp.status === 403) {
-      return "Maaf, API key Gemini-nya ditolak (401/403). Cek GEMINI_API_KEY di Cloudflare ya.";
-    }
-    if (geminiResp.status === 429) {
-      return "Maaf, Gemini lagi rate limit/kuota habis (429). Coba lagi beberapa saat ya.";
-    }
-    return "Maaf, Gemini lagi error. Coba ulang ya 🙏";
+    // Kirim info error ringkas ke user (debug sementara)
+    return `Gemini error (${geminiResp.status}): ${errText.slice(0, 200)}`;
   }
 
   const data = await geminiResp.json();
