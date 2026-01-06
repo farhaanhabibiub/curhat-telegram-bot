@@ -151,7 +151,7 @@ async function isCoolingDown(env, userId) {
   const v = await env.CURHAT_KV.get(key);
   if (v) return true;
 
-  await env.CURHAT_KV.put(key, "1", { expirationTtl: 7 }); // 7 detik
+  await env.CURHAT_KV.put(key, "1", { expirationTtl: 60 });
   return false;
 }
 
@@ -280,12 +280,15 @@ async function handleUpdate(update, env) {
 
     return await sendTelegram(env, chatId, reply);
   } catch (e) {
+    console.log("handleUpdate error:", e);
     try {
       const chatId = update?.message?.chat?.id;
-      const msg = e && e.stack ? String(e.stack) : String(e);
-      if (chatId) {
-        await sendTelegram(env, chatId, "⚠️ ERROR:\n" + msg.slice(0, 3500));
-      }
+      if (chatId)
+        await sendTelegram(
+          env,
+          chatId,
+          "Maaf, aku lagi error sebentar. Coba ulang ya 🙏"
+        );
     } catch {}
   }
 }
