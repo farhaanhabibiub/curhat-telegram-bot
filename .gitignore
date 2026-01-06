@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Virtual env
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local DB (kalau pakai SQLite)
+chat.db
+
+# VS Code
+.vscode/
