@@ -267,6 +267,10 @@ async function handleUpdate(update, env) {
     // Call Gemini
     let reply = await callGemini(env, fullInput);
 
+    if (!reply) {
+      reply = await callGroq(env, fullInput);
+    }
+
     // Fallback offline if quota/rate limit (429)
     if (!reply) {
       reply = offlineCurhatReply(userText, history);
@@ -331,13 +335,7 @@ async function callGemini(env, inputText) {
   if (!geminiResp.ok) {
     const errText = await geminiResp.text();
     console.log("Gemini error:", geminiResp.status, errText);
-
-    if (geminiResp.status === 429) {
-      // quota / rate limit => fallback offline
-      return null;
-    }
-
-    return "Maaf, AI lagi error. Coba ulang ya 🙏";
+    return null;
   }
 
   const data = await geminiResp.json();
@@ -347,6 +345,66 @@ async function callGemini(env, inputText) {
     text ||
     "Aku dengerin kok. Kamu mau cerita bagian yang paling beratnya yang mana?"
   );
+}
+
+async function callGroq(env, inputText) {
+  const apiKey = env.GROQ_API_KEY;
+  if (!apiKey) {
+    return null;
+  }
+
+  // Model Groq yang umum & bagus untuk chat
+  // Kamu bisa coba: "llama-3.1-70b-versatile" (lebih bagus, lebih berat)
+  // atau: "llama-3.1-8b-instant" (lebih cepat, lebih murah)
+  const model = "llama-3.1-8b-instant";
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  let resp;
+  try {
+    resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Kamu adalah teman curhat yang hangat. Bahasa Indonesia santai, tidak menggurui. " +
+              "Jawab 3–8 kalimat lalu tanya 1 pertanyaan lembut. Jangan mengaku psikolog/terapis. " +
+              "Jangan memberi diagnosis.",
+          },
+          { role: "user", content: inputText },
+        ],
+        temperature: 0.6,
+        max_tokens: 220,
+      }),
+    });
+  } catch (e) {
+    console.log("Groq fetch error:", e);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.log("Groq error:", resp.status, err);
+
+    // Kalau 429/503 dll, balikin null biar bisa fallback ke offline template
+    return null;
+  }
+
+  const data = await resp.json();
+  const text = data?.choices?.[0]?.message?.content?.trim();
+
+  return text || null;
 }
 
 // ---------------------------
