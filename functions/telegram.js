@@ -151,7 +151,7 @@ async function isCoolingDown(env, userId) {
   const v = await env.CURHAT_KV.get(key);
   if (v) return true;
 
-  await env.CURHAT_KV.put(key, "1", { expirationTtl: 15 });
+  await env.CURHAT_KV.put(key, "1", { expirationTtl: 60 });
   return false;
 }
 
