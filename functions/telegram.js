@@ -280,15 +280,12 @@ async function handleUpdate(update, env) {
 
     return await sendTelegram(env, chatId, reply);
   } catch (e) {
-    console.log("handleUpdate error:", e);
     try {
       const chatId = update?.message?.chat?.id;
-      if (chatId)
-        await sendTelegram(
-          env,
-          chatId,
-          "Maaf, aku lagi error sebentar. Coba ulang ya 🙏"
-        );
+      const msg = e && e.stack ? String(e.stack) : String(e);
+      if (chatId) {
+        await sendTelegram(env, chatId, "⚠️ ERROR:\n" + msg.slice(0, 3500));
+      }
     } catch {}
   }
 }
