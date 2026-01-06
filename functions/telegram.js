@@ -118,6 +118,10 @@ async function handleUpdate(update, env) {
       );
     }
 
+    if (userText.length < 3) {
+      return "Aku di sini kok 🙂 Kalau kamu mau, kamu bisa ceritain sedikit aja: apa yang lagi kamu rasain sekarang?";
+    }
+
     // Call Gemini
     const replyText = await callGemini(env, userText);
 
@@ -129,9 +133,19 @@ async function handleUpdate(update, env) {
 
 async function callGemini(env, userText) {
   const systemPrompt =
-    "Kamu adalah teman ngobrol untuk curhat. Gaya bahasa: Indonesia santai, hangat, nggak menggurui.\n" +
-    "Jawab singkat-menengah (3–8 kalimat), lalu tanya 1 pertanyaan lembut.\n" +
-    "Jangan mengaku sebagai psikolog/terapis. Jangan memberi diagnosis.\n";
+    "Kamu adalah teman curhat yang hangat, dewasa, dan tidak menggurui. Bahasa: Indonesia santai.\n" +
+    "Tugasmu: dengarkan, refleksikan perasaan user, lalu tanyakan 1 pertanyaan lembut untuk membantu user bercerita.\n" +
+    "Gaya jawaban:\n" +
+    "- 3 sampai 7 kalimat saja.\n" +
+    "- Jangan mengarang fakta tentang user.\n" +
+    "- Jangan sok tahu / jangan menyimpulkan berlebihan.\n" +
+    "- Jangan menyebut kata 'system prompt'.\n" +
+    "- Jangan memberi diagnosis medis/psikiatris.\n" +
+    "- Jika user meminta saran: berikan 2-3 opsi ringan yang aman.\n" +
+    "Struktur jawaban wajib:\n" +
+    "1) Validasi/empati (1-2 kalimat)\n" +
+    "2) Refleksi (1-2 kalimat)\n" +
+    "3) Pertanyaan lembut (1 kalimat)\n";
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${env.GEMINI_API_KEY}`;
 
@@ -149,11 +163,13 @@ async function callGemini(env, userText) {
           {
             role: "user",
             parts: [
-              { text: `${systemPrompt}\n\nUSER: ${userText}\nASSISTANT:` },
+              {
+                text: `${systemPrompt}\n\nPesan user (kutip persis, jangan ubah): """${userText}"""\n\nBalas sebagai teman curhat:`,
+              },
             ],
           },
         ],
-        generationConfig: { temperature: 0.8, maxOutputTokens: 250 },
+        generationConfig: { temperature: 0.5, maxOutputTokens: 220 },
       }),
     });
   } catch (e) {
