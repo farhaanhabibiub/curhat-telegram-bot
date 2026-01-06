@@ -225,8 +225,7 @@ async function callGemini(env, inputText) {
 
   if (!geminiResp.ok) {
     const errText = await geminiResp.text();
-    console.log("Gemini error:", geminiResp.status, errText);
-    return "Maaf, Gemini lagi error. Coba ulang ya 🙏";
+    return `Gemini error (${geminiResp.status}): ${errText.slice(0, 200)}`;
   }
 
   const data = await geminiResp.json();
