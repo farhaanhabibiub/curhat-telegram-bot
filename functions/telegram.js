@@ -291,10 +291,10 @@ async function handleUpdate(update, env) {
       `ASSISTANT:`;
 
     // Call Gemini
-    let reply = await callGemini(env, fullInput);
+    let reply = await callGroq(env, fullInput);
 
     if (!reply) {
-      reply = await callGroq(env, fullInput);
+      reply = await callGemini(env, fullInput);
     }
 
     // Fallback offline if quota/rate limit (429)
@@ -344,8 +344,8 @@ async function processUserMessage(env, chatId, userId, userText) {
     `ASSISTANT:`;
 
   // Gemini -> Groq -> offline
-  let reply = await callGemini(env, fullInput);
-  if (!reply) reply = await callGroq(env, fullInput);
+  let reply = await callGroq(env, fullInput);
+  if (!reply) reply = await callGemini(env, fullInput);
   if (!reply) reply = offlineCurhatReply(userText, history);
 
   // simpan assistant reply
@@ -362,61 +362,53 @@ async function processUserMessage(env, chatId, userId, userText) {
 // ---------------------------
 async function callGemini(env, inputText) {
   const apiKey = env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return "Aku belum disetup lengkap 😅 (GEMINI_API_KEY belum kebaca di Cloudflare).";
-  }
+  if (!apiKey) return null;
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+  const modelName = "gemini-2.5-flash";
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
 
-  let geminiResp;
+  let resp;
   try {
-    geminiResp = await fetch(geminiUrl, {
+    resp = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: inputText }] }],
-        generationConfig: {
-          temperature: 0.5,
-          maxOutputTokens: 160,
-        },
+        generationConfig: { temperature: 0.5, maxOutputTokens: 200 },
       }),
     });
   } catch (e) {
     console.log("Gemini fetch error:", e);
-    return "Maaf, aku lagi gagal menghubungi AI (timeout/jaringan). Coba ulang ya 🙏";
+    return null;
   } finally {
     clearTimeout(timeout);
   }
 
-  if (!geminiResp.ok) {
-    const errText = await geminiResp.text();
-    console.log("Gemini error:", geminiResp.status, errText);
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.log("Gemini error:", resp.status, errText);
+
+    // Cadangan: kalau gemini juga error, kita return null -> offline fallback
     return null;
   }
 
-  const data = await geminiResp.json();
+  const data = await resp.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-  return (
-    text ||
-    "Aku dengerin kok. Kamu mau cerita bagian yang paling beratnya yang mana?"
-  );
+  return text || null;
 }
 
 async function callGroq(env, inputText) {
   const apiKey = env.GROQ_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
+  if (!apiKey) return null;
 
-  // Model Groq yang umum & bagus untuk chat
-  // Kamu bisa coba: "llama-3.1-70b-versatile" (lebih bagus, lebih berat)
-  // atau: "llama-3.1-8b-instant" (lebih cepat, lebih murah)
+  // Model cepat / murah
   const model = "llama-3.1-8b-instant";
+  // Model lebih bagus (lebih berat):
+  // const model = "llama-3.1-70b-versatile";
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
@@ -437,8 +429,8 @@ async function callGroq(env, inputText) {
             role: "system",
             content:
               "Kamu adalah teman curhat yang hangat. Bahasa Indonesia santai, tidak menggurui. " +
-              "Jawab 3–8 kalimat lalu tanya 1 pertanyaan lembut. Jangan mengaku psikolog/terapis. " +
-              "Jangan memberi diagnosis.",
+              "Jawab 3–8 kalimat, lalu tanya 1 pertanyaan lembut. Jangan mengaku psikolog/terapis. " +
+              "Jangan memberi diagnosis. Jangan mengarang fakta.",
           },
           { role: "user", content: inputText },
         ],
@@ -454,16 +446,15 @@ async function callGroq(env, inputText) {
   }
 
   if (!resp.ok) {
-    const err = await resp.text();
-    console.log("Groq error:", resp.status, err);
+    const errText = await resp.text();
+    console.log("Groq error:", resp.status, errText);
 
-    // Kalau 429/503 dll, balikin null biar bisa fallback ke offline template
+    // Fallback to Gemini on any Groq error/limit
     return null;
   }
 
   const data = await resp.json();
   const text = data?.choices?.[0]?.message?.content?.trim();
-
   return text || null;
 }
 
