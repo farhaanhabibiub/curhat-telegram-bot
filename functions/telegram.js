@@ -145,17 +145,32 @@ async function kvReset(env, userId) {
 }
 
 // Simple cooldown per user (anti spam)
-async function isCoolingDown(env, userId) {
-  if (!env.CURHAT_KV) return false;
-  const key = `cool:${userId}`;
-  const v = await env.CURHAT_KV.get(key);
-  if (v) return true;
+async function cooldownRemainingMs(env, userId) {
+  if (!env.CURHAT_KV) return 0;
 
-  await env.CURHAT_KV.put(key, "1", { expirationTtl: 60 });
-  return false;
+  const key = `cool:${userId}`;
+  const now = Date.now();
+
+  const raw = await env.CURHAT_KV.get(key);
+  const last = raw ? Number(raw) : 0;
+
+  const COOLDOWN_MS = 15_000;
+
+  if (last && now - last < COOLDOWN_MS) {
+    return COOLDOWN_MS - (now - last);
+  }
+
+  // set timestamp, TTL 60 detik (minimal KV)
+  await env.CURHAT_KV.put(key, String(now), { expirationTtl: 60 });
+  return 0;
 }
 
 // Offline fallback (tanpa LLM) saat 429
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function offlineCurhatReply(userText, history) {
   const lastUser = [...history]
     .reverse()
@@ -236,13 +251,24 @@ async function handleUpdate(update, env) {
     }
 
     // Cooldown
-    if (await isCoolingDown(env, userId)) {
-      return await sendTelegram(
-        env,
-        chatId,
-        "Sebentar ya 🙂 Aku lagi mikir… coba kirim lagi 5–10 detik lagi."
-      );
+    const remaining = await cooldownRemainingMs(env, userId);
+
+    if (remaining > 0) {
+      // kasih tahu user sekali, lalu kita proses otomatis setelah cooldown
+      await sendTelegram(env, chatId, "Tunggu sebentar ya 🙂 Aku lagi mikir…");
+
+      // proses otomatis setelah cooldown selesai (tanpa user kirim lagi)
+      await sleep(remaining);
+
+      // setelah cooldown, proses pesan yang sama
+      await processUserMessage(env, chatId, userId, userText);
+
+      return;
     }
+
+    // kalau tidak cooldown, proses langsung
+    await processUserMessage(env, chatId, userId, userText);
+    return;
 
     // Load history
     let history = await kvGetHistory(env, userId);
@@ -295,6 +321,40 @@ async function handleUpdate(update, env) {
         );
     } catch {}
   }
+}
+
+async function processUserMessage(env, chatId, userId, userText) {
+  // load history dari KV
+  let history = await kvGetHistory(env, userId);
+
+  // simpan user message
+  history.push({ role: "user", content: userText });
+  history = trimHistory(history);
+
+  const summary = "Belum ada ringkasan.";
+  const historyText = formatHistoryForPrompt(history);
+  const prompt = SYSTEM_PROMPT.replace("{summary}", summary);
+
+  const fullInput =
+    `${prompt}\n\n` +
+    `---\n` +
+    `Percakapan sejauh ini:\n${historyText}\n` +
+    `---\n` +
+    `USER: ${userText}\n` +
+    `ASSISTANT:`;
+
+  // Gemini -> Groq -> offline
+  let reply = await callGemini(env, fullInput);
+  if (!reply) reply = await callGroq(env, fullInput);
+  if (!reply) reply = offlineCurhatReply(userText, history);
+
+  // simpan assistant reply
+  history.push({ role: "assistant", content: reply });
+  history = trimHistory(history);
+
+  await kvSetHistory(env, userId, history);
+
+  await sendTelegram(env, chatId, reply);
 }
 
 // ---------------------------
